@@ -182,7 +182,7 @@
         }
 
         player.update(effectiveDt); player.draw();
-        if(Math.random() < 0.08 * effectiveDt) items.push(new Item());
+        if(Math.random() < 0.03 * effectiveDt) items.push(new Item());
         items.forEach((it, i) => {
             it.draw(); if(Math.hypot(player.x-it.x, player.y-it.y)<30) {
                 player.invincible = true; player.invincEnd = Date.now()+2500;
