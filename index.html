@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>CORE DEFENSE: HVDC SHOCK (ACCELERATED)</title>
+    <title>CORE DEFENSE: HVDC SHOCK (FINAL)</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
     
@@ -11,6 +11,7 @@
 
         body { background-color: #020502; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: 'Orbitron', sans-serif; }
         #game-container { position: relative; width: 900px; height: 650px; background: radial-gradient(circle at center, #0a1a0a 0%, #020502 100%); border: 2px solid #00ff41; box-shadow: 0 0 50px rgba(0, 255, 65, 0.15); overflow: hidden; }
+        
         #ui-header { position: absolute; top: 0; left: 0; width: 100%; padding: 20px 40px; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; color: #00ff41; z-index: 20; background: linear-gradient(to bottom, rgba(0, 255, 65, 0.1), transparent); }
         .stat-group { display: flex; flex-direction: column; }
         .stat-label { font-size: 10px; color: #88ff88; opacity: 0.7; letter-spacing: 2px; }
@@ -49,7 +50,7 @@
             <h2>High Voltage Direct Current Defense</h2>
             <div id="leaderboard">
                 <div class="stat-label" style="margin-bottom:10px;">TOP OPERATORS</div>
-                <div id="rank-list">Connecting to Database...</div>
+                <div id="rank-list">Connecting...</div>
             </div>
             <p style="color: #666; font-size: 13px;">[ENTER] To Initialize System</p>
         </div>
@@ -85,8 +86,8 @@
 
     let player, pins, items, isRunning = false;
     let level = 1, startTime, lastJump, score = 0;
-    let lastTime = 0;
-    let timeScale = 1.0; // 시간이 지날수록 올라가는 전체 속도 배율
+    let lastTime = 0, timeScale = 1.0;
+    let isSubmitting = false; // 중복 제출 방지 변수
     const keys = {};
 
     function loadRanking() {
@@ -98,19 +99,14 @@
             scores.reverse().forEach((s, i) => {
                 html += `<div class="rank-item"><span>${i+1}. ${s.name}</span><span>${s.time.toFixed(2)}s</span></div>`;
             });
-            rankList.innerHTML = html || 'No Records Found';
+            rankList.innerHTML = html || 'No Records';
         });
-    }
-
-    function saveScore(name, time) {
-        if(!name) name = "GUEST";
-        db.ref('rankings').push({ name, time: parseFloat(time), date: Date.now() });
     }
 
     class Player {
         constructor() { 
             this.x = W/2; this.y = H/2; this.size = 20; 
-            this.speed = 320; // 플레이어 속도도 쾌적함을 위해 소폭 상향
+            this.speed = 320; 
             this.invincible = false; this.invincEnd = 0; 
         }
         draw() {
@@ -129,16 +125,10 @@
             if (keys['ArrowUp']) dy -= 1; if (keys['ArrowDown']) dy += 1;
             if (keys['ArrowLeft']) dx -= 1; if (keys['ArrowRight']) dx += 1;
             if (dx !== 0 && dy !== 0) { const n = Math.sqrt(dx*dx+dy*dy); dx/=n; dy/=n; }
-            
-            this.x += dx * this.speed * dt; 
-            this.y += dy * this.speed * dt;
-            
-            this.x = Math.max(15, Math.min(W-15, this.x)); 
-            this.y = Math.max(15, Math.min(H-15, this.y));
-            
+            this.x += dx * this.speed * dt; this.y += dy * this.speed * dt;
+            this.x = Math.max(15, Math.min(W-15, this.x)); this.y = Math.max(15, Math.min(H-15, this.y));
             if (this.invincible && Date.now() > this.invincEnd) { 
-                this.invincible = false; 
-                document.getElementById('shield-msg').style.display = 'none'; 
+                this.invincible = false; document.getElementById('shield-msg').style.display = 'none'; 
             }
         }
     }
@@ -152,75 +142,53 @@
             else if(s==2){this.x=-50; this.y=Math.random()*H;}
             else{this.x=W+50; this.y=Math.random()*H;}
             this.angle = Math.atan2(player.y-this.y, player.x-this.x) + (Math.random()-0.5)*0.8;
-            
-            // 기본 속도 10% 상향 조정 (150->165, lv 가중치도 30->33)
             this.baseSpeed = 165 + Math.random()*165 + (this.lv*33); 
         }
         update(dt) {
-            // timeScale(초당 1.5%씩 증가)을 곱하여 시간이 갈수록 가속됨
             this.x += Math.cos(this.angle) * this.baseSpeed * timeScale * dt; 
             this.y += Math.sin(this.angle) * this.baseSpeed * timeScale * dt;
             if(this.x<-100||this.x>W+100||this.y<-100||this.y>H+100) this.init();
         }
-        draw() { ctx.fillStyle = '#ffcc00'; ctx.shadowBlur=5; ctx.shadowColor='#ffcc00'; ctx.fillRect(this.x, this.y, 4, 4); ctx.shadowBlur=0; }
+        draw() { ctx.fillStyle = '#ffcc00'; ctx.fillRect(this.x, this.y, 4, 4); }
     }
 
     class Item {
         constructor() { this.x = Math.random()*(W-100)+50; this.y = Math.random()*(H-100)+50; this.t = 0; }
-        draw() {
-            this.t += 0.1; const s = 10 + Math.sin(this.t)*3;
-            ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 2;
-            ctx.strokeRect(this.x-s, this.y-s, s*2, s*2);
-        }
+        draw() { this.t += 0.1; const s = 10 + Math.sin(this.t)*3; ctx.strokeStyle = '#00ffff'; ctx.strokeRect(this.x-s, this.y-s, s*2, s*2); }
     }
 
     function initGame() {
         player = new Player(); pins = Array.from({length:12}, () => new Pin(1)); items = [];
         isRunning = true; level = 1; startTime = Date.now(); lastJump = startTime;
-        lastTime = performance.now(); 
-        timeScale = 1.0; // 초기 배율 설정
+        lastTime = performance.now(); timeScale = 1.0; isSubmitting = false;
         document.getElementById('overlay').classList.add('hidden');
         requestAnimationFrame(loop);
     }
 
     function loop(currentTime) {
         if(!isRunning) return;
-
-        const dt = (currentTime - lastTime) / 1000;
-        lastTime = currentTime;
-
+        const dt = (currentTime - lastTime) / 1000; lastTime = currentTime;
         const effectiveDt = Math.min(dt, 0.1);
-
-        // 시간이 지날수록 전체 속도 배율을 초당 약 1.5%씩 지수적으로 증가시킴
-        timeScale += 0.015 * effectiveDt;
+        timeScale += 0.018 * effectiveDt; // 난이도 상승폭 상향
 
         ctx.fillStyle = '#020502'; ctx.fillRect(0,0,W,H);
         score = (Date.now()-startTime)/1000;
         document.getElementById('time-val').innerText = score.toFixed(2);
 
-        // 난이도 상승 간격: 5초마다 핀을 더 많이 추가
         if(Date.now()-lastJump > 5000) {
-            level++; 
-            document.getElementById('lv-val').innerText = level.toString().padStart(2,'0');
-            lastJump = Date.now(); 
-            // 레벨이 오를수록 추가되는 핀의 개수를 점점 늘림 (기존 4개 고정에서 상향)
-            let pinsToAdd = 4 + Math.floor(level / 3);
-            for(let i=0; i<pinsToAdd; i++) pins.push(new Pin(level));
+            level++; document.getElementById('lv-val').innerText = level.toString().padStart(2,'0');
+            lastJump = Date.now(); let pAdd = 4 + Math.floor(level/3);
+            for(let i=0; i<pAdd; i++) pins.push(new Pin(level));
         }
 
         player.update(effectiveDt); player.draw();
-        
         if(Math.random() < 0.08 * effectiveDt) items.push(new Item());
-
         items.forEach((it, i) => {
-            it.draw();
-            if(Math.hypot(player.x-it.x, player.y-it.y)<30) {
+            it.draw(); if(Math.hypot(player.x-it.x, player.y-it.y)<30) {
                 player.invincible = true; player.invincEnd = Date.now()+2500;
-                document.getElementById('shield-msg').style.display = 'block';
-                items.splice(i, 1);
+                document.getElementById('shield-msg').style.display = 'block'; items.splice(i, 1);
             }
         });
-
         pins.forEach(p => {
             p.update(effectiveDt); p.draw();
             if(Math.hypot(player.x-p.x, player.y-p.y)<16 && !player.invincible) endGame();
@@ -238,9 +206,11 @@
     }
 
     function handleSubmit() {
-        const nick = document.getElementById('nickname-input').value.trim();
-        saveScore(nick, score.toFixed(2));
-        location.reload(); 
+        if (isSubmitting) return; // 전송 중이면 중단
+        const nick = document.getElementById('nickname-input').value.trim() || "GUEST";
+        isSubmitting = true; 
+        db.ref('rankings').push({ name: nick, time: parseFloat(score.toFixed(2)), date: Date.now() })
+          .then(() => location.reload());
     }
 
     window.addEventListener('keydown', e => {
@@ -252,7 +222,6 @@
     });
     window.addEventListener('keyup', e => keys[e.key] = false);
     document.getElementById('submit-btn').onclick = handleSubmit;
-
     loadRanking();
 </script>
 </body>
