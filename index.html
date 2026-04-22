@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>CORE DEFENSE: HVDC SHOCK</title>
+    <title>CORE DEFENSE: HVDC SHOCK (ACCELERATED)</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
     
@@ -20,10 +20,8 @@
         h1 { font-size: 55px; margin: 0; color: #00ff41; text-shadow: 0 0 20px rgba(0, 255, 65, 0.6); font-weight: 900; }
         h2 { font-family: 'Rajdhani'; font-size: 16px; margin: 5px 0 20px 0; color: #88ff88; letter-spacing: 5px; text-transform: uppercase; }
 
-        /* 리더보드 */
         #leaderboard { width: 320px; margin: 20px 0; background: rgba(0, 255, 65, 0.05); padding: 15px; border: 1px solid rgba(0, 255, 65, 0.3); border-radius: 4px; }
         .rank-item { display: flex; justify-content: space-between; font-family: 'Rajdhani'; font-size: 18px; border-bottom: 1px solid rgba(0, 255, 65, 0.1); padding: 6px 0; color: #00ff41; }
-        .rank-item:last-child { border: none; }
         
         #nickname-input { background: #000; border: 1px solid #00ff41; color: #00ff41; padding: 12px; font-family: 'Orbitron'; text-align: center; margin-bottom: 15px; outline: none; width: 250px; font-size: 16px; }
         button { background: #00ff41; border: none; padding: 12px 40px; font-family: 'Orbitron'; font-weight: bold; cursor: pointer; color: #000; transition: 0.3s; }
@@ -67,7 +65,6 @@
 </div>
 
 <script>
-    // 1. 제공해주신 Firebase 설정 적용
     const firebaseConfig = {
         apiKey: "AIzaSyDw-si_CJ059o0_KPdiPzdOXbcEL53h7m8",
         authDomain: "hvdc-shock.firebaseapp.com",
@@ -88,9 +85,10 @@
 
     let player, pins, items, isRunning = false;
     let level = 1, startTime, lastJump, score = 0;
+    let lastTime = 0;
+    let timeScale = 1.0; // 시간이 지날수록 올라가는 전체 속도 배율
     const keys = {};
 
-    // --- DB 핸들러 ---
     function loadRanking() {
         const rankList = document.getElementById('rank-list');
         db.ref('rankings').orderByChild('time').limitToLast(5).on('value', (snapshot) => {
@@ -109,9 +107,12 @@
         db.ref('rankings').push({ name, time: parseFloat(time), date: Date.now() });
     }
 
-    // --- 게임 클래스 ---
     class Player {
-        constructor() { this.x = W/2; this.y = H/2; this.size = 20; this.speed = 4.8; this.invincible = false; this.invincEnd = 0; }
+        constructor() { 
+            this.x = W/2; this.y = H/2; this.size = 20; 
+            this.speed = 320; // 플레이어 속도도 쾌적함을 위해 소폭 상향
+            this.invincible = false; this.invincEnd = 0; 
+        }
         draw() {
             ctx.save(); ctx.translate(this.x, this.y);
             if (this.invincible) {
@@ -123,14 +124,22 @@
             ctx.fillStyle = this.invincible ? '#00ffff' : '#00ff41'; ctx.fillRect(-4, -4, 8, 8);
             ctx.restore();
         }
-        update() {
+        update(dt) {
             let dx = 0, dy = 0;
             if (keys['ArrowUp']) dy -= 1; if (keys['ArrowDown']) dy += 1;
             if (keys['ArrowLeft']) dx -= 1; if (keys['ArrowRight']) dx += 1;
             if (dx !== 0 && dy !== 0) { const n = Math.sqrt(dx*dx+dy*dy); dx/=n; dy/=n; }
-            this.x += dx * this.speed; this.y += dy * this.speed;
-            this.x = Math.max(15, Math.min(W-15, this.x)); this.y = Math.max(15, Math.min(H-15, this.y));
-            if (this.invincible && Date.now() > this.invincEnd) { this.invincible = false; document.getElementById('shield-msg').style.display = 'none'; }
+            
+            this.x += dx * this.speed * dt; 
+            this.y += dy * this.speed * dt;
+            
+            this.x = Math.max(15, Math.min(W-15, this.x)); 
+            this.y = Math.max(15, Math.min(H-15, this.y));
+            
+            if (this.invincible && Date.now() > this.invincEnd) { 
+                this.invincible = false; 
+                document.getElementById('shield-msg').style.display = 'none'; 
+            }
         }
     }
 
@@ -143,10 +152,14 @@
             else if(s==2){this.x=-50; this.y=Math.random()*H;}
             else{this.x=W+50; this.y=Math.random()*H;}
             this.angle = Math.atan2(player.y-this.y, player.x-this.x) + (Math.random()-0.5)*0.8;
-            this.speed = 2 + Math.random()*2 + (this.lv*0.3);
+            
+            // 기본 속도 10% 상향 조정 (150->165, lv 가중치도 30->33)
+            this.baseSpeed = 165 + Math.random()*165 + (this.lv*33); 
         }
-        update() {
-            this.x += Math.cos(this.angle)*this.speed; this.y += Math.sin(this.angle)*this.speed;
+        update(dt) {
+            // timeScale(초당 1.5%씩 증가)을 곱하여 시간이 갈수록 가속됨
+            this.x += Math.cos(this.angle) * this.baseSpeed * timeScale * dt; 
+            this.y += Math.sin(this.angle) * this.baseSpeed * timeScale * dt;
             if(this.x<-100||this.x>W+100||this.y<-100||this.y>H+100) this.init();
         }
         draw() { ctx.fillStyle = '#ffcc00'; ctx.shadowBlur=5; ctx.shadowColor='#ffcc00'; ctx.fillRect(this.x, this.y, 4, 4); ctx.shadowBlur=0; }
@@ -162,25 +175,42 @@
     }
 
     function initGame() {
-        player = new Player(); pins = Array.from({length:10}, () => new Pin(1)); items = [];
+        player = new Player(); pins = Array.from({length:12}, () => new Pin(1)); items = [];
         isRunning = true; level = 1; startTime = Date.now(); lastJump = startTime;
+        lastTime = performance.now(); 
+        timeScale = 1.0; // 초기 배율 설정
         document.getElementById('overlay').classList.add('hidden');
-        loop();
+        requestAnimationFrame(loop);
     }
 
-    function loop() {
+    function loop(currentTime) {
         if(!isRunning) return;
+
+        const dt = (currentTime - lastTime) / 1000;
+        lastTime = currentTime;
+
+        const effectiveDt = Math.min(dt, 0.1);
+
+        // 시간이 지날수록 전체 속도 배율을 초당 약 1.5%씩 지수적으로 증가시킴
+        timeScale += 0.015 * effectiveDt;
+
         ctx.fillStyle = '#020502'; ctx.fillRect(0,0,W,H);
         score = (Date.now()-startTime)/1000;
         document.getElementById('time-val').innerText = score.toFixed(2);
 
+        // 난이도 상승 간격: 5초마다 핀을 더 많이 추가
         if(Date.now()-lastJump > 5000) {
-            level++; document.getElementById('lv-val').innerText = level.toString().padStart(2,'0');
-            lastJump = Date.now(); for(let i=0; i<4; i++) pins.push(new Pin(level));
+            level++; 
+            document.getElementById('lv-val').innerText = level.toString().padStart(2,'0');
+            lastJump = Date.now(); 
+            // 레벨이 오를수록 추가되는 핀의 개수를 점점 늘림 (기존 4개 고정에서 상향)
+            let pinsToAdd = 4 + Math.floor(level / 3);
+            for(let i=0; i<pinsToAdd; i++) pins.push(new Pin(level));
         }
 
-        player.update(); player.draw();
-        if(Math.random()<0.001) items.push(new Item());
+        player.update(effectiveDt); player.draw();
+        
+        if(Math.random() < 0.08 * effectiveDt) items.push(new Item());
 
         items.forEach((it, i) => {
             it.draw();
@@ -192,7 +222,7 @@
         });
 
         pins.forEach(p => {
-            p.update(); p.draw();
+            p.update(effectiveDt); p.draw();
             if(Math.hypot(player.x-p.x, player.y-p.y)<16 && !player.invincible) endGame();
         });
         requestAnimationFrame(loop);
@@ -210,7 +240,7 @@
     function handleSubmit() {
         const nick = document.getElementById('nickname-input').value.trim();
         saveScore(nick, score.toFixed(2));
-        location.reload(); // 리더보드 갱신 및 초기화
+        location.reload(); 
     }
 
     window.addEventListener('keydown', e => {
